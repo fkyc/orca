@@ -166,6 +166,23 @@ class ExpressionsSupportSpec extends Specification {
     then:
     context.variables.containsKey("test_hello")
   }
+
+  def "support registering helper function"() {
+    given:
+    ExpressionsSupport.addHelperFunction("woop", CustomHelperFunction.class, Collections.singletonList(String.class))
+
+    when:
+    EvaluationContext context = ExpressionsSupport.newEvaluationContext(pipeline, false)
+
+    then:
+    context.variables.containsKey("woop")
+  }
+}
+
+class CustomHelperFunction {
+  static String woop(String other) {
+    return "Woop $other"
+  }
 }
 
 class HelloExpressionFunctionProvider implements ExpressionFunctionProvider {

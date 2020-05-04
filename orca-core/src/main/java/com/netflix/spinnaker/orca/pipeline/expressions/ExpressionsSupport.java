@@ -34,6 +34,7 @@ import java.net.URL;
 import java.util.*;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Predicate;
+import lombok.Value;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.expression.ParserContext;
@@ -51,29 +52,51 @@ public class ExpressionsSupport {
   private static final ObjectMapper mapper = new ObjectMapper();
   private static AtomicReference<ContextFunctionConfiguration>
       helperFunctionConfigurationAtomicReference = new AtomicReference<>();
-  private static Map<String, List<Class<?>>> registeredHelperFunctions = new HashMap<>();
+  private static Map<String, RegisteredHelperFunction> registeredHelperFunctions = new HashMap<>();
 
   ExpressionsSupport(ContextFunctionConfiguration contextFunctionConfiguration) {
     helperFunctionConfigurationAtomicReference.set(contextFunctionConfiguration);
   }
 
+  @Value
+  private static class RegisteredHelperFunction {
+    String name;
+    Class<?> methodClass;
+    List<Class<?>> argTypes;
+  }
+
   static {
-    registeredHelperFunctions.put("alphanumerical", Collections.singletonList(String.class));
-    registeredHelperFunctions.put("toJson", Collections.singletonList(Object.class));
-    registeredHelperFunctions.put("readJson", Collections.singletonList(String.class));
-    registeredHelperFunctions.put("readYaml", Collections.singletonList(String.class));
-    registeredHelperFunctions.put("toInt", Collections.singletonList(String.class));
-    registeredHelperFunctions.put("toFloat", Collections.singletonList(String.class));
-    registeredHelperFunctions.put("toBoolean", Collections.singletonList(String.class));
-    registeredHelperFunctions.put("toBase64", Collections.singletonList(String.class));
-    registeredHelperFunctions.put("fromBase64", Collections.singletonList(String.class));
+    addHelperFunction(
+        "alphanumerical", ExpressionsSupport.class, Collections.singletonList(String.class));
+    addHelperFunction("toJson", ExpressionsSupport.class, Collections.singletonList(Object.class));
+    addHelperFunction(
+        "readJson", ExpressionsSupport.class, Collections.singletonList(String.class));
+    addHelperFunction(
+        "readYaml", ExpressionsSupport.class, Collections.singletonList(String.class));
+    addHelperFunction("toInt", ExpressionsSupport.class, Collections.singletonList(String.class));
+    addHelperFunction("toFloat", ExpressionsSupport.class, Collections.singletonList(String.class));
+    addHelperFunction(
+        "toBoolean", ExpressionsSupport.class, Collections.singletonList(String.class));
+    addHelperFunction(
+        "toBase64", ExpressionsSupport.class, Collections.singletonList(String.class));
+    addHelperFunction(
+        "fromBase64", ExpressionsSupport.class, Collections.singletonList(String.class));
+  }
+
+  /**
+   * Register some helper functions that will be added to each SpEL evaluation context. This is
+   * public because Airbnb needs to register some additional custom functions that are run on the
+   * pipeline.
+   */
+  public static void addHelperFunction(String name, Class<?> methodClass, List<Class<?>> argTypes) {
+    registeredHelperFunctions.put(name, new RegisteredHelperFunction(name, methodClass, argTypes));
   }
 
   /** Internally registers a Spel method to an evaluation context */
   private static void registerFunction(
-      StandardEvaluationContext context, String name, Class<?>... types)
+      StandardEvaluationContext context, String name, Class<?> methodClass, Class<?>... types)
       throws NoSuchMethodException {
-    context.registerFunction(name, ExpressionsSupport.class.getDeclaredMethod(name, types));
+    context.registerFunction(name, methodClass.getDeclaredMethod(name, types));
   }
 
   /**
@@ -92,21 +115,32 @@ public class ExpressionsSupport {
         Arrays.asList(new MapPropertyAccessor(allowUnknownKeys), new FilteredPropertyAccessor()));
 
     try {
-      for (Map.Entry<String, List<Class<?>>> m : registeredHelperFunctions.entrySet()) {
+      for (Map.Entry<String, RegisteredHelperFunction> m : registeredHelperFunctions.entrySet()) {
+        RegisteredHelperFunction helperFunction = m.getValue();
         registerFunction(
-            evaluationContext, m.getKey(), m.getValue().toArray(new Class<?>[m.getValue().size()]));
+            evaluationContext,
+            m.getKey(),
+            helperFunction.getMethodClass(),
+            helperFunction
+                .getArgTypes()
+                .toArray(new Class<?>[helperFunction.getArgTypes().size()]));
       }
 
       if (allowUnknownKeys) {
         // lazily function registering
-        registerFunction(evaluationContext, "fromUrl", String.class);
-        registerFunction(evaluationContext, "jsonFromUrl", String.class);
-        registerFunction(evaluationContext, "yamlFromUrl", String.class);
-        registerFunction(evaluationContext, "propertiesFromUrl", String.class);
-        registerFunction(evaluationContext, "stage", Object.class, String.class);
-        registerFunction(evaluationContext, "stageExists", Object.class, String.class);
-        registerFunction(evaluationContext, "judgment", Object.class, String.class);
-        registerFunction(evaluationContext, "judgement", Object.class, String.class);
+        registerFunction(evaluationContext, "fromUrl", ExpressionsSupport.class, String.class);
+        registerFunction(evaluationContext, "jsonFromUrl", ExpressionsSupport.class, String.class);
+        registerFunction(evaluationContext, "yamlFromUrl", ExpressionsSupport.class, String.class);
+        registerFunction(
+            evaluationContext, "propertiesFromUrl", ExpressionsSupport.class, String.class);
+        registerFunction(
+            evaluationContext, "stage", ExpressionsSupport.class, Object.class, String.class);
+        registerFunction(
+            evaluationContext, "stageExists", ExpressionsSupport.class, Object.class, String.class);
+        registerFunction(
+            evaluationContext, "judgment", ExpressionsSupport.class, Object.class, String.class);
+        registerFunction(
+            evaluationContext, "judgement", ExpressionsSupport.class, Object.class, String.class);
 
         ContextFunctionConfiguration contextFunctionConfiguration =
             helperFunctionConfigurationAtomicReference.get();
